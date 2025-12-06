@@ -201,6 +201,9 @@ impl WhisperApp {
         self.audio_segments.clear();
         self.recognition_results.clear();
         
+        // 重置工作区（新视频需要新工作区）
+        self.workspace_dir = None;
+        
         // 检查文件类型：如果是音频文件，直接使用；如果是视频，提取音频
         let extension = path.extension()
             .and_then(|s| s.to_str())
@@ -788,17 +791,24 @@ impl WhisperApp {
     }
     
     fn save_workspace(&mut self) {
-        // 如果还没有工作区，先选择一个
-        if self.workspace_dir.is_none() {
-            if let Some(folder) = rfd::FileDialog::new().pick_folder() {
-                self.workspace_dir = Some(folder.clone());
-                let _ = workspace::create_workspace_structure(&folder);
-            } else {
-                return;
-            }
+        // 推荐工作区路径（基于视频文件所在目录）
+        let default_dir = self.video_path.as_ref()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_path_buf());
+        
+        // 每次保存都让用户选择或确认工作区位置
+        let mut dialog = rfd::FileDialog::new();
+        if let Some(dir) = default_dir {
+            dialog = dialog.set_directory(dir);
         }
         
-        if let Some(workspace_dir) = &self.workspace_dir {
+        if let Some(folder) = dialog.pick_folder() {
+            // 创建工作区结构（如果不存在）
+            let _ = workspace::create_workspace_structure(&folder);
+            
+            // 更新当前工作区路径
+            self.workspace_dir = Some(folder.clone());
+            
             let state = workspace::WorkspaceState {
                 video_path: self.video_path.clone(),
                 audio_path: self.audio_path.clone(),
@@ -808,12 +818,12 @@ impl WhisperApp {
                 manual_start_time: self.manual_start_time.clone(),
                 manual_end_time: self.manual_end_time.clone(),
                 total_duration: self.total_duration,
-                workspace_dir: workspace_dir.clone(),
+                workspace_dir: folder.clone(),
             };
             
-            match state.save(workspace_dir) {
+            match state.save(&folder) {
                 Ok(_) => {
-                    self.status_message = "Workspace saved successfully!".to_string();
+                    self.status_message = format!("Workspace saved to: {:?}", folder);
                 }
                 Err(e) => {
                     self.status_message = format!("Failed to save workspace: {}", e);
