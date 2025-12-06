@@ -4,6 +4,7 @@ mod whisper;
 mod srt_merger;
 mod recognition;
 mod manual_cut;
+mod workspace;
 
 use eframe::egui;
 use std::path::PathBuf;
@@ -78,6 +79,9 @@ struct WhisperApp {
     manual_start_time: String,
     manual_end_time: String,
     manual_segment: Option<PathBuf>,
+    
+    // 工作区
+    workspace_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -103,6 +107,7 @@ enum WhisperModel {
     Small,
     Medium,
     Large,
+    Turbo,
 }
 
 impl Default for WhisperModel {
@@ -119,6 +124,7 @@ impl WhisperModel {
             WhisperModel::Small => "small",
             WhisperModel::Medium => "medium",
             WhisperModel::Large => "large",
+            WhisperModel::Turbo => "turbo",
         }
     }
     
@@ -129,6 +135,7 @@ impl WhisperModel {
             WhisperModel::Small,
             WhisperModel::Medium,
             WhisperModel::Large,
+            WhisperModel::Turbo,
         ]
     }
 }
@@ -782,6 +789,82 @@ impl WhisperApp {
             let _ = fs::write(path, plain_text);
         }
     }
+    
+    fn open_workspace(&mut self) {
+        if let Some(folder) = rfd::FileDialog::new().pick_folder() {
+            // 检查是否存在工作区状态文件
+            if workspace::WorkspaceState::exists(&folder) {
+                // 加载工作区
+                match workspace::WorkspaceState::load(&folder) {
+                    Ok(state) => {
+                        self.workspace_dir = Some(folder.clone());
+                        self.video_path = state.video_path;
+                        self.audio_path = state.audio_path.clone();
+                        self.cut_points = state.cut_points;
+                        self.audio_segments = state.audio_segments;
+                        self.manual_segment = state.manual_segment;
+                        self.manual_start_time = state.manual_start_time;
+                        self.manual_end_time = state.manual_end_time;
+                        self.total_duration = state.total_duration;
+                        
+                        // 重新加载音频播放器
+                        if let Some(audio_path) = &state.audio_path {
+                            if audio_path.exists() {
+                                match audio_player::AudioPlayer::new(audio_path) {
+                                    Ok(player) => {
+                                        self.audio_player = Some(player);
+                                        self.state = AppState::AudioExtracted;
+                                    }
+                                    Err(_) => {}
+                                }
+                            }
+                        }
+                        
+                        self.status_message = "Workspace loaded successfully!".to_string();
+                    }
+                    Err(e) => {
+                        self.status_message = format!("Failed to load workspace: {}", e);
+                    }
+                }
+            } else {
+                // 创建新工作区
+                match workspace::create_workspace_structure(&folder) {
+                    Ok(_) => {
+                        self.workspace_dir = Some(folder);
+                        self.status_message = "New workspace created.".to_string();
+                    }
+                    Err(e) => {
+                        self.status_message = format!("Failed to create workspace: {}", e);
+                    }
+                }
+            }
+        }
+    }
+    
+    fn save_workspace(&self) {
+        if let Some(workspace_dir) = &self.workspace_dir {
+            let state = workspace::WorkspaceState {
+                video_path: self.video_path.clone(),
+                audio_path: self.audio_path.clone(),
+                cut_points: self.cut_points.clone(),
+                audio_segments: self.audio_segments.clone(),
+                manual_segment: self.manual_segment.clone(),
+                manual_start_time: self.manual_start_time.clone(),
+                manual_end_time: self.manual_end_time.clone(),
+                total_duration: self.total_duration,
+                workspace_dir: workspace_dir.clone(),
+            };
+            
+            match state.save(workspace_dir) {
+                Ok(_) => {
+                    println!("Workspace saved successfully!");
+                }
+                Err(e) => {
+                    eprintln!("Failed to save workspace: {}", e);
+                }
+            }
+        }
+    }
 }
 
 impl eframe::App for WhisperApp {
@@ -836,7 +919,21 @@ impl eframe::App for WhisperApp {
         });
         
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Whisper Speech Recognition");
+            ui.horizontal(|ui| {
+                ui.heading("Whisper Speech Recognition");
+                
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("📁 Open Folder").clicked() {
+                        self.open_workspace();
+                    }
+                    
+                    if self.workspace_dir.is_some() {
+                        if ui.button("💾 Save Workspace").clicked() {
+                            self.save_workspace();
+                        }
+                    }
+                });
+            });
             ui.separator();
             
             ui.horizontal(|ui| {
