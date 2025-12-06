@@ -10,7 +10,6 @@ use eframe::egui;
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver};
 use std::fs;
-use serde::{Serialize, Deserialize};
 use std::process::Command;
 
 fn main() -> Result<(), eframe::Error> {
@@ -91,13 +90,6 @@ enum ProgressMessage {
     RealtimeOutput(String),  // 实时输出信息
     Completed,
     Error(String),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct CutPointsData {
-    cut_points: Vec<f64>,
-    video_name: String,
-    total_duration: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -511,52 +503,6 @@ impl WhisperApp {
             
             let _ = tx.send(ProgressMessage::Completed);
         });
-    }
-    
-    fn export_cut_points(&self) {
-        if self.cut_points.is_empty() {
-            return;
-        }
-        
-        let video_name = self.video_path
-            .as_ref()
-            .and_then(|p| p.file_stem())
-            .and_then(|s| s.to_str())
-            .unwrap_or("unknown")
-            .to_string();
-        
-        let data = CutPointsData {
-            cut_points: self.cut_points.clone(),
-            video_name: video_name.clone(),
-            total_duration: self.total_duration,
-        };
-        
-        if let Ok(json) = serde_json::to_string_pretty(&data) {
-            // 使用文件对话框保存
-            if let Some(path) = rfd::FileDialog::new()
-                .set_file_name(&format!("{}_cut_points.json", video_name))
-                .add_filter("JSON", &["json"])
-                .save_file()
-            {
-                let _ = fs::write(path, json);
-            }
-        }
-    }
-    
-    fn import_cut_points(&mut self) {
-        // 使用文件对话框选择文件
-        if let Some(path) = rfd::FileDialog::new()
-            .add_filter("JSON", &["json"])
-            .pick_file()
-        {
-            if let Ok(content) = fs::read_to_string(path) {
-                if let Ok(data) = serde_json::from_str::<CutPointsData>(&content) {
-                    self.cut_points = data.cut_points;
-                    self.cut_points.sort_by(|a, b| a.partial_cmp(b).unwrap());
-                    self.status_message = format!("Imported {} cut points", self.cut_points.len());
-                }
-            }
-        }
     }
     
     fn cut_manual_segment(&mut self) {
@@ -1079,19 +1025,9 @@ impl eframe::App for WhisperApp {
                                         });
                                     
                                     ui.add_space(5.0);
-                                    ui.horizontal(|ui| {
-                                        if ui.button("🔪 Execute Cut").clicked() {
-                                            self.cut_audio();
-                                        }
-                                        
-                                        if ui.button("📤 Export Cut Points").clicked() {
-                                            self.export_cut_points();
-                                        }
-                                        
-                                        if ui.button("📥 Import Cut Points").clicked() {
-                                            self.import_cut_points();
-                                        }
-                                    });
+                                    if ui.button("🔪 Execute Cut").clicked() {
+                                        self.cut_audio();
+                                    }
                                 }
                             });
                     }
