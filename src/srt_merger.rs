@@ -14,20 +14,30 @@ struct SubtitleEntry {
 /// 解析 SRT 时间字符串为秒数
 fn parse_srt_time(time_str: &str) -> Result<f64> {
     // 格式: HH:MM:SS,mmm
+    let time_str = time_str.trim();
+    
+    if time_str.is_empty() {
+        return Err(anyhow!("Empty time string"));
+    }
+    
     let parts: Vec<&str> = time_str.split(',').collect();
     if parts.len() != 2 {
-        return Err(anyhow!("Invalid time format: {}", time_str));
+        return Err(anyhow!("Invalid time format: {} (expected HH:MM:SS,mmm)", time_str));
     }
     
     let time_parts: Vec<&str> = parts[0].split(':').collect();
     if time_parts.len() != 3 {
-        return Err(anyhow!("Invalid time format: {}", time_str));
+        return Err(anyhow!("Invalid time format: {} (expected HH:MM:SS,mmm)", time_str));
     }
     
-    let hours: f64 = time_parts[0].parse()?;
-    let minutes: f64 = time_parts[1].parse()?;
-    let seconds: f64 = time_parts[2].parse()?;
-    let milliseconds: f64 = parts[1].parse()?;
+    let hours: f64 = time_parts[0].trim().parse()
+        .map_err(|_| anyhow!("Invalid hour value: {}", time_parts[0]))?;
+    let minutes: f64 = time_parts[1].trim().parse()
+        .map_err(|_| anyhow!("Invalid minute value: {}", time_parts[1]))?;
+    let seconds: f64 = time_parts[2].trim().parse()
+        .map_err(|_| anyhow!("Invalid second value: {}", time_parts[2]))?;
+    let milliseconds: f64 = parts[1].trim().parse()
+        .map_err(|_| anyhow!("Invalid millisecond value: {}", parts[1]))?;
     
     Ok(hours * 3600.0 + minutes * 60.0 + seconds + milliseconds / 1000.0)
 }
@@ -57,7 +67,10 @@ fn parse_srt_file(path: &Path) -> Result<Vec<SubtitleEntry>> {
         
         if line.is_empty() {
             if let Some(entry) = current_entry.take() {
-                entries.push(entry);
+                // 只添加有效的条目（有时间和文本）
+                if !entry.start_time.is_empty() && !entry.end_time.is_empty() {
+                    entries.push(entry);
+                }
             }
             continue;
         }
@@ -78,8 +91,13 @@ fn parse_srt_file(path: &Path) -> Result<Vec<SubtitleEntry>> {
             let time_parts: Vec<&str> = line.split("-->").collect();
             if time_parts.len() == 2 {
                 if let Some(ref mut entry) = current_entry {
-                    entry.start_time = time_parts[0].trim().to_string();
-                    entry.end_time = time_parts[1].trim().to_string();
+                    let start = time_parts[0].trim();
+                    let end = time_parts[1].trim();
+                    // 验证时间格式非空
+                    if !start.is_empty() && !end.is_empty() {
+                        entry.start_time = start.to_string();
+                        entry.end_time = end.to_string();
+                    }
                 }
             }
             continue;
@@ -95,7 +113,9 @@ fn parse_srt_file(path: &Path) -> Result<Vec<SubtitleEntry>> {
     
     // 添加最后一个条目
     if let Some(entry) = current_entry {
-        entries.push(entry);
+        if !entry.start_time.is_empty() && !entry.end_time.is_empty() {
+            entries.push(entry);
+        }
     }
     
     Ok(entries)

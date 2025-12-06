@@ -841,7 +841,17 @@ impl WhisperApp {
         }
     }
     
-    fn save_workspace(&self) {
+    fn save_workspace(&mut self) {
+        // 如果还没有工作区，先选择一个
+        if self.workspace_dir.is_none() {
+            if let Some(folder) = rfd::FileDialog::new().pick_folder() {
+                self.workspace_dir = Some(folder.clone());
+                let _ = workspace::create_workspace_structure(&folder);
+            } else {
+                return;
+            }
+        }
+        
         if let Some(workspace_dir) = &self.workspace_dir {
             let state = workspace::WorkspaceState {
                 video_path: self.video_path.clone(),
@@ -857,10 +867,10 @@ impl WhisperApp {
             
             match state.save(workspace_dir) {
                 Ok(_) => {
-                    println!("Workspace saved successfully!");
+                    self.status_message = "Workspace saved successfully!".to_string();
                 }
                 Err(e) => {
-                    eprintln!("Failed to save workspace: {}", e);
+                    self.status_message = format!("Failed to save workspace: {}", e);
                 }
             }
         }
@@ -923,14 +933,15 @@ impl eframe::App for WhisperApp {
                 ui.heading("Whisper Speech Recognition");
                 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("📁 Open Folder").clicked() {
-                        self.open_workspace();
-                    }
-                    
-                    if self.workspace_dir.is_some() {
+                    // 只要有视频加载就显示保存按钮
+                    if self.video_path.is_some() {
                         if ui.button("💾 Save Workspace").clicked() {
                             self.save_workspace();
                         }
+                    }
+                    
+                    if ui.button("📁 Open Folder").clicked() {
+                        self.open_workspace();
                     }
                 });
             });
