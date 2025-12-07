@@ -744,49 +744,71 @@ impl WhisperApp {
     
     fn open_workspace(&mut self) {
         if let Some(folder) = rfd::FileDialog::new().pick_folder() {
+            println!("Selected folder: {:?}", folder);
+            
             // 检查是否存在工作区状态文件
             if workspace::WorkspaceState::exists(&folder) {
+                println!("Found workspace_state.json, loading...");
+                
                 // 加载工作区
                 match workspace::WorkspaceState::load(&folder) {
                     Ok(state) => {
+                        println!("Workspace loaded successfully!");
+                        println!("Video path: {:?}", state.video_path);
+                        println!("Audio segments: {}", state.audio_segments.len());
+                        println!("Completed segments: {:?}", state.completed_segments);
+                        
                         self.workspace_dir = Some(folder.clone());
-                        self.video_path = state.video_path;
+                        self.video_path = state.video_path.clone();
                         self.audio_path = state.audio_path.clone();
-                        self.cut_points = state.cut_points;
-                        self.audio_segments = state.audio_segments;
-                        self.manual_segment = state.manual_segment;
-                        self.manual_start_time = state.manual_start_time;
-                        self.manual_end_time = state.manual_end_time;
+                        self.cut_points = state.cut_points.clone();
+                        self.audio_segments = state.audio_segments.clone();
+                        self.manual_segment = state.manual_segment.clone();
+                        self.manual_start_time = state.manual_start_time.clone();
+                        self.manual_end_time = state.manual_end_time.clone();
                         self.total_duration = state.total_duration;
                         
                         // 重新加载音频播放器
                         if let Some(audio_path) = &state.audio_path {
+                            println!("Loading audio player from: {:?}", audio_path);
                             if audio_path.exists() {
                                 match audio_player::AudioPlayer::new(audio_path) {
                                     Ok(player) => {
+                                        println!("Audio player loaded successfully!");
                                         self.audio_player = Some(player);
                                         self.state = AppState::AudioExtracted;
                                     }
-                                    Err(_) => {}
+                                    Err(e) => {
+                                        println!("Failed to load audio player: {}", e);
+                                        self.state = AppState::AudioExtracted;  // 仍然设置状态
+                                    }
                                 }
+                            } else {
+                                println!("Audio file not found: {:?}", audio_path);
+                                self.state = AppState::AudioExtracted;  // 即使音频不存在也设置状态
                             }
                         }
                         
                         // 检测哪些片段缺失字幕
                         self.check_missing_subtitles();
                         
-                        self.status_message = "Workspace loaded successfully!".to_string();
+                        let completed = self.completed_segments.len();
+                        let total = self.audio_segments.len();
+                        self.status_message = format!("Workspace loaded! {}/{} segments completed.", completed, total);
                     }
                     Err(e) => {
                         self.status_message = format!("Failed to load workspace: {}", e);
+                        eprintln!("Error loading workspace: {}", e);
                     }
                 }
             } else {
+                println!("No workspace_state.json found, creating new workspace");
+                
                 // 创建新工作区
                 match workspace::create_workspace_structure(&folder) {
                     Ok(_) => {
-                        self.workspace_dir = Some(folder);
-                        self.status_message = "New workspace created.".to_string();
+                        self.workspace_dir = Some(folder.clone());
+                        self.status_message = format!("New workspace created: {:?}", folder);
                     }
                     Err(e) => {
                         self.status_message = format!("Failed to create workspace: {}", e);
