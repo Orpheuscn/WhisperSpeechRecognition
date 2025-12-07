@@ -9,9 +9,12 @@ pub struct WorkspaceState {
     pub audio_path: Option<PathBuf>,
     pub cut_points: Vec<f64>,
     pub audio_segments: Vec<PathBuf>,
+    #[serde(default)]  // 兼容旧的 workspace_state.json，如果没有这个字段就用空数组
     pub completed_segments: Vec<usize>,  // 已完成识别的片段索引
     pub manual_segment: Option<PathBuf>,
+    #[serde(default)]  // 兼容旧版本
     pub manual_start_time: String,
+    #[serde(default)]  // 兼容旧版本
     pub manual_end_time: String,
     pub total_duration: f64,
     pub workspace_dir: PathBuf,
