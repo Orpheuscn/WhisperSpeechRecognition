@@ -83,6 +83,7 @@ struct WhisperApp {
     workspace_dir: Option<PathBuf>,
     can_resume: bool,  // 是否可以恢复识别
     missing_segments: Vec<usize>,  // 缺失字幕的片段索引
+    completed_segments: Vec<usize>,  // 已完成的片段索引
 }
 
 #[derive(Debug, Clone)]
@@ -814,11 +815,21 @@ impl WhisperApp {
             // 更新当前工作区路径
             self.workspace_dir = Some(folder.clone());
             
+            // 扫描已完成的片段
+            let mut completed_segments = Vec::new();
+            for (i, segment) in self.audio_segments.iter().enumerate() {
+                let srt_path = segment.with_extension("srt");
+                if srt_path.exists() {
+                    completed_segments.push(i);
+                }
+            }
+            
             let state = workspace::WorkspaceState {
                 video_path: self.video_path.clone(),
                 audio_path: self.audio_path.clone(),
                 cut_points: self.cut_points.clone(),
                 audio_segments: self.audio_segments.clone(),
+                completed_segments,  // 保存已完成的片段信息
                 manual_segment: self.manual_segment.clone(),
                 manual_start_time: self.manual_start_time.clone(),
                 manual_end_time: self.manual_end_time.clone(),
@@ -839,6 +850,7 @@ impl WhisperApp {
     
     fn check_missing_subtitles(&mut self) {
         self.missing_segments.clear();
+        self.completed_segments.clear();
         self.can_resume = false;
         
         if self.audio_segments.is_empty() {
@@ -848,14 +860,16 @@ impl WhisperApp {
         // 检查每个片段是否有对应的 SRT 文件
         for (i, segment) in self.audio_segments.iter().enumerate() {
             let srt_path = segment.with_extension("srt");
-            if !srt_path.exists() {
+            if srt_path.exists() {
+                self.completed_segments.push(i);
+            } else {
                 self.missing_segments.push(i);
             }
         }
         
         // 如果有缺失且有完成的，说明可以恢复
         self.can_resume = !self.missing_segments.is_empty() 
-            && self.missing_segments.len() < self.audio_segments.len();
+            && !self.completed_segments.is_empty();
     }
     
     fn resume_recognition(&mut self) {
@@ -865,8 +879,11 @@ impl WhisperApp {
         }
         
         self.state = AppState::Processing;
-        self.processing_progress = 0.0;
-        self.processing_status = "Resuming recognition...".to_string();
+        
+        // 设置初始进度为已完成的百分比
+        let completed_count = self.audio_segments.len() - self.missing_segments.len();
+        self.processing_progress = completed_count as f32 / self.audio_segments.len() as f32;
+        self.processing_status = format!("Resuming from {}/{} segments...", completed_count, self.audio_segments.len());
         self.recognition_results.clear();
         
         let segments: Vec<_> = self.missing_segments.iter()

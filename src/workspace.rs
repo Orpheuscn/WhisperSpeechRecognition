@@ -9,6 +9,7 @@ pub struct WorkspaceState {
     pub audio_path: Option<PathBuf>,
     pub cut_points: Vec<f64>,
     pub audio_segments: Vec<PathBuf>,
+    pub completed_segments: Vec<usize>,  // 已完成识别的片段索引
     pub manual_segment: Option<PathBuf>,
     pub manual_start_time: String,
     pub manual_end_time: String,
