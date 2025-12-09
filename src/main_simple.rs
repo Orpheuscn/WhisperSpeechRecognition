@@ -17,15 +17,36 @@ fn main() -> Result<(), eframe::Error> {
     };
 
     eframe::run_native(
-        "Whisper Subtitle Generator",
+        "Whisper字幕生成器",
         options,
-        Box::new(|_cc| {
+        Box::new(|cc| {
+            setup_fonts(&cc.egui_ctx);
             Ok(Box::new(App::default()))
         }),
     )
 }
 
+/// 设置中文字体
+fn setup_fonts(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(font_data) = std::fs::read("/System/Library/Fonts/PingFang.ttc") {
+            fonts.font_data.insert(
+                "pingfang".to_owned(),
+                egui::FontData::from_owned(font_data),
+            );
+            fonts.families.entry(egui::FontFamily::Proportional)
+                .or_default()
+                .insert(0, "pingfang".to_owned());
+        }
+    }
+    
+    ctx.set_fonts(fonts);
+}
 
+#[derive(Default)]
 struct App {
     video_path: Option<PathBuf>,
     audio_path: Option<PathBuf>,
@@ -51,18 +72,18 @@ struct App {
 impl App {
     fn handle_drop(&mut self, path: PathBuf) {
         self.video_path = Some(path.clone());
-        self.status = format!("Loaded: {:?}", path.file_name().unwrap());
+        self.status = format!("已加载: {:?}", path.file_name().unwrap());
         self.audio_path = None;
         
-        // Extract audio
-        self.status = "Extracting audio...".to_string();
+        // 提取音频
+        self.status = "正在提取音频...".to_string();
         match ffmpeg::extract_audio(&path) {
             Ok(audio) => {
                 self.audio_path = Some(audio);
-                self.status = "Audio extracted successfully!".to_string();
+                self.status = "音频提取成功！".to_string();
             }
             Err(e) => {
-                self.status = format!("Extraction failed: {}", e);
+                self.status = format!("提取失败: {}", e);
             }
         }
     }
@@ -71,7 +92,7 @@ impl App {
         let audio_path = match &self.audio_path {
             Some(p) => p.clone(),
             None => {
-                self.status = "Please load a file first!".to_string();
+                self.status = "请先加载文件！".to_string();
                 return;
             }
         };
@@ -79,7 +100,7 @@ impl App {
         let start = match manual_cut::parse_time_string(&self.start_time) {
             Ok(t) => t,
             Err(_) => {
-                self.status = "Invalid start time format!".to_string();
+                self.status = "起始时间格式错误！".to_string();
                 return;
             }
         };
@@ -87,7 +108,7 @@ impl App {
         let end = match manual_cut::parse_time_string(&self.end_time) {
             Ok(t) => t,
             Err(_) => {
-                self.status = "Invalid end time format!".to_string();
+                self.status = "结束时间格式错误！".to_string();
                 return;
             }
         };
@@ -102,15 +123,15 @@ impl App {
         self.progress_rx = Some(rx);
         
         std::thread::spawn(move || {
-            // Cut segment
-            let _ = tx.send(format!("Cutting audio segment {:.1}s - {:.1}s...", start, end));
+            // 切割片段
+            let _ = tx.send(format!("正在切割音频片段 {:.1}s - {:.1}s...", start, end));
             
             match manual_cut::cut_audio_segment(&audio_path, start, end) {
                 Ok(segment_path) => {
-                    let _ = tx.send(format!("Segment cut: {:?}", segment_path));
+                    let _ = tx.send(format!("✅ 片段已切割: {:?}", segment_path));
                     
-                    // Call Python VAD script
-                    let _ = tx.send("Starting VAD recognition...".to_string());
+                    // 调用Python脚本识别
+                    let _ = tx.send("正在启动VAD识别...".to_string());
                     
                     let script_path = "scripts/vad_transcribe_continuous.py";
                     
@@ -135,20 +156,20 @@ impl App {
                             
                             match child.wait() {
                                 Ok(status) if status.success() => {
-                                    let _ = tx.send("Recognition completed!".to_string());
+                                    let _ = tx.send("✅ 识别完成！".to_string());
                                 }
                                 _ => {
-                                    let _ = tx.send("Recognition failed!".to_string());
+                                    let _ = tx.send("❌ 识别失败！".to_string());
                                 }
                             }
                         }
                         Err(e) => {
-                            let _ = tx.send(format!("Failed to start: {}", e));
+                            let _ = tx.send(format!("❌ 启动失败: {}", e));
                         }
                     }
                 }
                 Err(e) => {
-                    let _ = tx.send(format!("Cut failed: {}", e));
+                    let _ = tx.send(format!("❌ 切割失败: {}", e));
                 }
             }
         });
@@ -158,36 +179,25 @@ impl App {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // 处理进度消息
-        let mut should_stop = false;
-        let mut new_subtitles = None;
-        
         if let Some(rx) = &self.progress_rx {
             while let Ok(msg) = rx.try_recv() {
                 self.log_messages.push(msg.clone());
                 
-                if msg.contains("completed") || msg.contains("failed") {
-                    should_stop = true;
+                if msg.contains("完成") || msg.contains("失败") {
+                    self.processing = false;
+                    self.progress_rx = None;
                     
-                    // Try to load generated subtitles
+                    // 尝试加载生成的字幕
                     if let Some(video_path) = &self.video_path {
                         let srt_path = video_path.with_extension("srt");
                         if srt_path.exists() {
                             if let Ok(subs) = subtitle::parse_srt_file(&srt_path) {
-                                new_subtitles = Some(subs);
+                                self.subtitles = subs;
+                                self.status = format!("字幕已加载: {} 条", self.subtitles.len());
                             }
                         }
                     }
                 }
-            }
-        }
-        
-        if should_stop {
-            self.processing = false;
-            self.progress_rx = None;
-            
-            if let Some(subs) = new_subtitles {
-                self.subtitles = subs;
-                self.status = format!("Subtitles generated: {} entries", self.subtitles.len());
             }
         }
         
@@ -203,27 +213,27 @@ impl eframe::App for App {
         });
         
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Whisper Subtitle Generator");
+            ui.heading("Whisper字幕生成器");
             ui.separator();
             
-            // File area
+            // 文件区域
             egui::Frame::default()
                 .fill(egui::Color32::from_rgb(40, 40, 50))
                 .stroke(egui::Stroke::new(2.0, egui::Color32::from_rgb(100, 100, 120)))
                 .inner_margin(20.0)
                 .show(ui, |ui| {
                     if let Some(path) = &self.video_path {
-                        ui.label(format!("File: {}", path.file_name().unwrap().to_string_lossy()));
+                        ui.label(format!("📹 {}", path.file_name().unwrap().to_string_lossy()));
                     } else {
-                        ui.label("Drag and drop video/audio file here");
+                        ui.label("📂 拖拽视频或音频文件到此处");
                     }
                 });
             
             ui.add_space(20.0);
             
-            // Settings
+            // 设置区
             ui.horizontal(|ui| {
-                ui.label("Model:");
+                ui.label("模型:");
                 egui::ComboBox::from_id_salt("model")
                     .selected_text(&self.model)
                     .show_ui(ui, |ui| {
@@ -234,57 +244,45 @@ impl eframe::App for App {
                 
                 ui.add_space(20.0);
                 
-                ui.label("Language:");
+                ui.label("语言:");
                 egui::ComboBox::from_id_salt("lang")
                     .selected_text(&self.language)
                     .show_ui(ui, |ui| {
-                        let languages = vec![
-                            "Afrikaans", "Arabic", "Armenian", "Azerbaijani", "Belarusian", 
-                            "Bosnian", "Bulgarian", "Catalan", "Chinese", "Croatian", "Czech", 
-                            "Danish", "Dutch", "English", "Estonian", "Finnish", "French", 
-                            "Galician", "German", "Greek", "Hebrew", "Hindi", "Hungarian", 
-                            "Icelandic", "Indonesian", "Italian", "Japanese", "Kannada", 
-                            "Kazakh", "Korean", "Latvian", "Lithuanian", "Macedonian", "Malay", 
-                            "Marathi", "Maori", "Nepali", "Norwegian", "Persian", "Polish", 
-                            "Portuguese", "Romanian", "Russian", "Serbian", "Slovak", "Slovenian", 
-                            "Spanish", "Swahili", "Swedish", "Tagalog", "Tamil", "Thai", 
-                            "Turkish", "Ukrainian", "Urdu", "Vietnamese", "Welsh"
-                        ];
-                        for lang in languages {
-                            ui.selectable_value(&mut self.language, lang.to_string(), lang);
-                        }
+                        ui.selectable_value(&mut self.language, "Chinese".to_string(), "Chinese");
+                        ui.selectable_value(&mut self.language, "Japanese".to_string(), "Japanese");
+                        ui.selectable_value(&mut self.language, "English".to_string(), "English");
                     });
             });
             
             ui.add_space(20.0);
             ui.separator();
             
-            // Manual cut section
-            ui.label("Manual Cut Time Range");
+            // 手动切割区
+            ui.label("✂️ 切割时间段");
             ui.horizontal(|ui| {
-                ui.label("Start:");
+                ui.label("起始:");
                 ui.text_edit_singleline(&mut self.start_time);
-                ui.label("End:");
+                ui.label("结束:");
                 ui.text_edit_singleline(&mut self.end_time);
             });
-            ui.label("Format: HH:MM:SS.mmm or MM:SS or SS");
+            ui.label("💡 格式: HH:MM:SS.mmm 或 MM:SS 或 SS");
             
             ui.add_space(10.0);
             
             if !self.processing {
-                if ui.button("Cut and Recognize").clicked() {
+                if ui.button("🎤 切割并识别").clicked() {
                     self.cut_and_recognize();
                 }
             } else {
-                ui.label("Processing...");
+                ui.label("🔄 识别中...");
             }
             
             ui.add_space(20.0);
             ui.separator();
             
-            // Log
+            // 日志
             if !self.log_messages.is_empty() {
-                ui.label("Log:");
+                ui.label("📝 日志:");
                 egui::ScrollArea::vertical()
                     .max_height(200.0)
                     .show(ui, |ui| {
@@ -296,13 +294,13 @@ impl eframe::App for App {
             
             ui.add_space(10.0);
             
-            // Status
+            // 状态
             ui.label(&self.status);
             
-            // Subtitle info
+            // 字幕信息
             if !self.subtitles.is_empty() {
                 ui.separator();
-                ui.label(format!("Subtitles generated: {} entries", self.subtitles.len()));
+                ui.label(format!("✅ 字幕已生成: {} 条", self.subtitles.len()));
             }
         });
         
@@ -313,17 +311,9 @@ impl eframe::App for App {
 impl Default for App {
     fn default() -> Self {
         Self {
-            video_path: None,
-            audio_path: None,
-            status: String::new(),
-            start_time: String::new(),
-            end_time: String::new(),
             model: "base".to_string(),
             language: "Chinese".to_string(),
-            processing: false,
-            progress_rx: None,
-            log_messages: Vec::new(),
-            subtitles: Vec::new(),
+            ..Default::default()
         }
     }
 }
