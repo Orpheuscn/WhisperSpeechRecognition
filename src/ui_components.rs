@@ -128,38 +128,13 @@ impl WhisperApp {
                         }
                     }
                     
-                    if ui.button("✂ 标记切割点").clicked() {
-                        self.add_cut_point();
+                    // 添加播放视频+字幕按钮
+                    if self.srt_path.is_some() {
+                        if ui.button("🎬 播放视频").clicked() {
+                            self.play_video_with_subtitle();
+                        }
                     }
                 });
-                
-                // 切割点列表
-                if !self.cut_points.is_empty() {
-                    ui.separator();
-                    ui.label(format!("切割点 ({}):", self.cut_points.len()));
-                    
-                    egui::ScrollArea::vertical()
-                        .max_height(100.0)
-                        .show(ui, |ui| {
-                            let mut to_remove = None;
-                            for (i, &point) in self.cut_points.iter().enumerate() {
-                                ui.horizontal(|ui| {
-                                    ui.label(format!("{}. {}", i + 1, Self::format_time(point)));
-                                    if ui.small_button("🗑").clicked() {
-                                        to_remove = Some(i);
-                                    }
-                                });
-                            }
-                            if let Some(i) = to_remove {
-                                self.remove_cut_point(i);
-                            }
-                        });
-                    
-                    ui.add_space(5.0);
-                    if ui.button("🔪 执行切割").clicked() {
-                        self.cut_audio();
-                    }
-                }
             });
     }
     
@@ -170,7 +145,7 @@ impl WhisperApp {
         }
         
         ui.separator();
-        ui.label("✂️ 手动切割片段");
+        ui.label("✂️ 手动切割片段（用于补充/修正字幕）");
         
         ui.horizontal(|ui| {
             ui.label("起始:");
@@ -187,14 +162,13 @@ impl WhisperApp {
             }
             
             if self.manual_segment.is_some() {
-                if ui.button("🎤 识别片段").clicked() {
-                    self.recognize_manual_segment();
+                ui.label("→");
+                if ui.button("🎤 Whisper识别").clicked() {
+                    self.recognize_manual_segment_whisper();
                 }
                 
                 if ui.button("🤖 VAD识别").clicked() {
-                    self.recognition_mode = RecognitionMode::VAD;
-                    self.recognize_manual_segment();
-                    self.recognition_mode = RecognitionMode::Normal;
+                    self.recognize_manual_segment_vad();
                 }
             }
         });
@@ -251,44 +225,43 @@ impl WhisperApp {
         ui.add_space(10.0);
         
         // 识别控制
-        if !self.audio_segments.is_empty() {
-            ui.label(format!("✅ 音频片段: {}", self.audio_segments.len()));
-            ui.add_space(10.0);
-            
-            if self.state != AppState::Processing {
-                if ui.button("🎤 开始识别").clicked() {
-                    self.start_recognition();
-                }
-            } else {
-                ui.label("🔄 识别中...");
-                ui.label(&self.processing_status);
-                ui.add_space(5.0);
-                ui.add(egui::ProgressBar::new(self.processing_progress).show_percentage());
+        if self.state != AppState::Processing {
+            if ui.button("🎤 开始识别").clicked() {
+                self.start_recognition();
             }
             
-            ui.add_space(10.0);
-            
-            // 识别结果
-            if !self.recognition_results.is_empty() {
-                ui.label("📝 结果:");
-                ui.add_space(5.0);
-                
-                egui::ScrollArea::vertical()
-                    .max_height(150.0)
-                    .show(ui, |ui| {
-                        for result in &self.recognition_results {
-                            egui::Frame::default()
-                                .fill(egui::Color32::from_rgb(35, 35, 45))
-                                .inner_margin(8.0)
-                                .show(ui, |ui| {
-                                    ui.label(result);
-                                });
-                            ui.add_space(5.0);
-                        }
-                    });
+            if self.recognition_mode == RecognitionMode::VAD {
+                ui.label("💡 VAD模式会自动检测语音并切割");
+            } else {
+                ui.label("💡 普通模式需要使用手动切割功能");
             }
         } else {
-            ui.label("⚠️ 请先切割音频");
+            ui.label("🔄 识别中...");
+            ui.label(&self.processing_status);
+            ui.add_space(5.0);
+            ui.add(egui::ProgressBar::new(self.processing_progress).show_percentage());
+        }
+        
+        ui.add_space(10.0);
+        
+        // 识别结果
+        if !self.recognition_results.is_empty() {
+            ui.label("📝 结果:");
+            ui.add_space(5.0);
+            
+            egui::ScrollArea::vertical()
+                .max_height(150.0)
+                .show(ui, |ui| {
+                    for result in &self.recognition_results {
+                        egui::Frame::default()
+                            .fill(egui::Color32::from_rgb(35, 35, 45))
+                            .inner_margin(8.0)
+                            .show(ui, |ui| {
+                                ui.label(result);
+                            });
+                        ui.add_space(5.0);
+                    }
+                });
         }
     }
     

@@ -74,36 +74,26 @@ impl WhisperApp {
         }
     }
     
-    /// 添加切割点
-    pub fn add_cut_point(&mut self) {
-        if !self.cut_points.contains(&self.current_position) {
-            self.cut_points.push(self.current_position);
-            self.cut_points.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        }
-    }
-    
-    /// 移除切割点
-    pub fn remove_cut_point(&mut self, index: usize) {
-        if index < self.cut_points.len() {
-            self.cut_points.remove(index);
-        }
-    }
-    
-    /// 执行音频切割
-    pub fn cut_audio(&mut self) {
-        if let Some(audio_path) = &self.audio_path {
-            self.status_message = "正在切割音频...".to_string();
-            self.state = AppState::Processing;
-            
-            match ffmpeg::cut_audio(audio_path, &self.cut_points) {
-                Ok(segments) => {
-                    self.audio_segments = segments;
-                    self.status_message = format!("音频切割完成，共 {} 个片段", self.audio_segments.len());
-                    self.state = AppState::AudioExtracted;
-                }
-                Err(e) => {
-                    self.status_message = format!("切割音频失败: {}", e);
-                    self.state = AppState::AudioExtracted;
+    /// 播放视频+字幕
+    pub fn play_video_with_subtitle(&mut self) {
+        if let Some(video_path) = &self.video_path {
+            if let Some(srt_path) = &self.srt_path {
+                // 创建一个新的VideoPlayer用于播放视频+字幕
+                match crate::video_player::VideoPlayer::new(video_path) {
+                    Ok(mut player) => {
+                        let start_pos = Some(self.current_position);
+                        match player.play_with_video(Some(srt_path), start_pos) {
+                            Ok(_) => {
+                                self.status_message = "视频播放中...".to_string();
+                            }
+                            Err(e) => {
+                                self.status_message = format!("播放视频失败: {}", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        self.status_message = format!("创建播放器失败: {}", e);
+                    }
                 }
             }
         }
@@ -111,8 +101,15 @@ impl WhisperApp {
     
     /// 开始识别（普通模式或VAD模式）
     pub fn start_recognition(&mut self) {
-        if self.audio_segments.is_empty() {
-            self.status_message = "请先切割音频!".to_string();
+        // VAD模式不需要预先切割
+        if self.recognition_mode == RecognitionMode::Normal && self.audio_segments.is_empty() {
+            self.status_message = "普通模式需要先切割音频！请使用手动切割功能。".to_string();
+            return;
+        }
+        
+        // VAD模式需要音频文件
+        if self.recognition_mode == RecognitionMode::VAD && self.audio_path.is_none() {
+            self.status_message = "请先加载音频文件！".to_string();
             return;
         }
         
@@ -228,7 +225,114 @@ impl WhisperApp {
         }
     }
     
-    /// 识别手动片段（支持VAD模式）
+    /// 识别手动片段 - Whisper模式
+    pub fn recognize_manual_segment_whisper(&mut self) {
+        if self.manual_segment.is_none() {
+            self.status_message = "没有手动片段可识别!".to_string();
+            return;
+        }
+        
+        self.state = AppState::Processing;
+        self.processing_progress = 0.0;
+        self.processing_status = "正在识别手动片段（Whisper）...".to_string();
+        self.recognition_results.clear();
+        
+        let segment = self.manual_segment.clone().unwrap();
+        let model = self.whisper_model;
+        let language = self.whisper_language.clone();
+        let custom_lang = self.custom_language_code.clone();
+        
+        let start_time = manual_cut::parse_time_string(&self.manual_start_time).unwrap_or(0.0);
+        let end_time = manual_cut::parse_time_string(&self.manual_end_time).unwrap_or(0.0);
+        
+        let mut subtitles = self.subtitles.clone();
+        
+        let (tx, rx) = channel();
+        self.progress_receiver = Some(rx);
+        
+        std::thread::spawn(move || {
+            match crate::recognition::recognize_single_segment(
+                &segment, 0, 1, model, &language, &custom_lang, tx.clone()
+            ) {
+                Ok((srt_path, _text)) => {
+                    if let Ok(mut new_subs) = subtitle::parse_srt_file(&srt_path) {
+                        // 调整时间偏移
+                        for sub in &mut new_subs {
+                            sub.start_time += start_time;
+                            sub.end_time += start_time;
+                        }
+                        
+                        // 移除范围内的旧字幕
+                        subtitle::remove_subtitles_in_range(&mut subtitles, start_time, end_time);
+                        
+                        // 插入新字幕
+                        subtitle::insert_subtitles(&mut subtitles, new_subs);
+                        
+                        let _ = tx.send(ProgressMessage::RealtimeOutput(
+                            format!("✅ 已更新字幕：{:.2}s - {:.2}s", start_time, end_time)
+                        ));
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(ProgressMessage::Error(format!("识别失败: {}", e)));
+                }
+            }
+            
+            let _ = tx.send(ProgressMessage::Completed);
+        });
+    }
+    
+    /// 识别手动片段 - VAD模式
+    pub fn recognize_manual_segment_vad(&mut self) {
+        if self.manual_segment.is_none() {
+            self.status_message = "没有手动片段可识别!".to_string();
+            return;
+        }
+        
+        self.state = AppState::Processing;
+        self.processing_progress = 0.0;
+        self.processing_status = "正在识别手动片段（VAD）...".to_string();
+        self.recognition_results.clear();
+        
+        let segment = self.manual_segment.clone().unwrap();
+        let model = self.whisper_model;
+        let language = self.whisper_language.clone();
+        let custom_lang = self.custom_language_code.clone();
+        
+        let start_time = manual_cut::parse_time_string(&self.manual_start_time).unwrap_or(0.0);
+        let end_time = manual_cut::parse_time_string(&self.manual_end_time).unwrap_or(0.0);
+        
+        let mut subtitles = self.subtitles.clone();
+        
+        let (tx, rx) = channel();
+        self.progress_receiver = Some(rx);
+        
+        std::thread::spawn(move || {
+            match vad_recognition::recognize_segment_with_vad(
+                &segment, start_time, end_time, model, &language, &custom_lang, tx.clone()
+            ) {
+                Ok(new_subs) => {
+                    // 移除范围内的旧字幕
+                    subtitle::remove_subtitles_in_range(&mut subtitles, start_time, end_time);
+                    
+                    // 插入新字幕
+                    subtitle::insert_subtitles(&mut subtitles, new_subs);
+                    
+                    let _ = tx.send(ProgressMessage::RealtimeOutput(
+                        format!("✅ 已更新字幕：{:.2}s - {:.2}s", start_time, end_time)
+                    ));
+                }
+                Err(e) => {
+                    let _ = tx.send(ProgressMessage::Error(format!("VAD识别失败: {}", e)));
+                }
+            }
+            
+            let _ = tx.send(ProgressMessage::Completed);
+        });
+    }
+    
+    /// 识别手动片段（旧版本，兼容）
+    #[allow(dead_code)]
     pub fn recognize_manual_segment(&mut self) {
         if self.manual_segment.is_none() {
             self.status_message = "没有手动片段可识别!".to_string();
