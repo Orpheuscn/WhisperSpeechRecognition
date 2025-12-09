@@ -10,7 +10,7 @@ impl WhisperApp {
         self.state = AppState::Idle;
         self.status_message = format!("文件已加载: {:?}", path.file_name().unwrap());
         self.audio_path = None;
-        self.audio_player = None;
+        self.video_player = None;
         self.cut_points.clear();
         self.audio_segments.clear();
         self.recognition_results.clear();
@@ -35,13 +35,13 @@ impl WhisperApp {
         self.status_message = "音频文件已加载!".to_string();
         self.state = AppState::AudioExtracted;
         
-        match crate::audio_player::AudioPlayer::new(&audio_path) {
+        match crate::video_player::VideoPlayer::new(&audio_path) {
             Ok(player) => {
                 self.total_duration = player.duration();
-                self.audio_player = Some(player);
+                self.video_player = Some(player);
             }
             Err(e) => {
-                self.status_message = format!("加载音频失败: {}", e);
+                self.status_message = format!("加载媒体失败: {}", e);
             }
         }
     }
@@ -57,13 +57,13 @@ impl WhisperApp {
                     self.status_message = "音频提取成功!".to_string();
                     self.state = AppState::AudioExtracted;
                     
-                    match crate::audio_player::AudioPlayer::new(&audio_path) {
+                    match crate::video_player::VideoPlayer::new(&audio_path) {
                         Ok(player) => {
                             self.total_duration = player.duration();
-                            self.audio_player = Some(player);
+                            self.video_player = Some(player);
                         }
                         Err(e) => {
-                            self.status_message = format!("加载音频失败: {}", e);
+                            self.status_message = format!("加载媒体失败: {}", e);
                         }
                     }
                 }
@@ -365,9 +365,9 @@ impl WhisperApp {
                         
                         if let Some(audio_path) = &state.audio_path {
                             if audio_path.exists() {
-                                match crate::audio_player::AudioPlayer::new(audio_path) {
+                                match crate::video_player::VideoPlayer::new(audio_path) {
                                     Ok(player) => {
-                                        self.audio_player = Some(player);
+                                        self.video_player = Some(player);
                                         self.state = AppState::AudioExtracted;
                                     }
                                     Err(_) => {

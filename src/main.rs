@@ -1,4 +1,3 @@
-mod audio_player;
 mod ffmpeg;
 mod whisper;
 mod srt_merger;
@@ -82,8 +81,13 @@ impl eframe::App for WhisperApp {
         }
         
         // 更新播放位置
-        if let Some(player) = &self.audio_player {
+        if let Some(player) = &mut self.video_player {
             self.current_position = player.position();
+            
+            // 检查播放状态
+            if self.is_playing && !player.is_playing() {
+                self.is_playing = false;
+            }
         }
         
         // 处理拖拽文件

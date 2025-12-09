@@ -86,9 +86,8 @@ impl WhisperApp {
                         
                         if ui.small_button(&button_text).clicked() {
                             self.current_position = time;
-                            if let Some(player) = &mut self.audio_player {
+                            if let Some(player) = &mut self.video_player {
                                 player.seek(time);
-                                player.pause();
                                 self.is_playing = false;
                             }
                         }
@@ -106,7 +105,7 @@ impl WhisperApp {
                 if ui.add(egui::Slider::new(&mut position, 0.0..=self.total_duration)
                     .show_value(false)).changed() {
                     self.current_position = position;
-                    if let Some(player) = &mut self.audio_player {
+                    if let Some(player) = &mut self.video_player {
                         player.seek(position);
                     }
                 }
@@ -115,15 +114,15 @@ impl WhisperApp {
                 ui.horizontal(|ui| {
                     if self.is_playing {
                         if ui.button("⏸ 暂停").clicked() {
-                            if let Some(player) = &mut self.audio_player {
+                            if let Some(player) = &mut self.video_player {
                                 player.pause();
                                 self.is_playing = false;
                             }
                         }
                     } else {
                         if ui.button("▶ 播放").clicked() {
-                            if let Some(player) = &mut self.audio_player {
-                                player.play();
+                            if let Some(player) = &mut self.video_player {
+                                let _ = player.play();
                                 self.is_playing = true;
                             }
                         }

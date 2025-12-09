@@ -165,8 +165,8 @@ pub struct WhisperApp {
     pub state: AppState,
     pub status_message: String,
     
-    // 音频播放器
-    pub audio_player: Option<crate::audio_player::AudioPlayer>,
+    // 视频/音频播放器
+    pub video_player: Option<crate::video_player::VideoPlayer>,
     pub is_playing: bool,
     pub current_position: f64, // 秒
     pub total_duration: f64,   // 秒
