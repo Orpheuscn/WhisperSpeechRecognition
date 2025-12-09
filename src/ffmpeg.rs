@@ -30,10 +30,8 @@ pub fn extract_audio(video_path: &Path) -> Result<PathBuf> {
     Ok(wav_path)
 }
 
-/// 根据切割点切割音频文件
-/// 
-/// 注意：切割后会将 WAV 片段转换为 MP3 格式，并删除 WAV 片段
-/// 完整的 WAV 文件会保留用于播放
+/// 根据切割点切割音频文件（已废弃，使用VAD自动切割）
+#[allow(dead_code)]
 pub fn cut_audio(audio_path: &Path, cut_points: &[f64]) -> Result<Vec<PathBuf>> {
     if cut_points.is_empty() {
         // 如果没有切割点，返回原始文件
