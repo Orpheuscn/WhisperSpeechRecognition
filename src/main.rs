@@ -6,6 +6,13 @@ mod recognition;
 mod manual_cut;
 mod workspace;
 
+// 新增模块
+mod app_state;
+mod subtitle;
+mod video_player;
+mod vad_recognition;
+mod fonts;
+
 use eframe::egui;
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver};
@@ -15,15 +22,19 @@ use std::process::Command;
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1200.0, 700.0])
+            .with_inner_size([1400.0, 800.0])  // 增大窗口以容纳字幕编辑器
             .with_drag_and_drop(true),
         ..Default::default()
     };
 
     eframe::run_native(
-        "Whisper Speech Recognition",
+        "Whisper Video Subtitle Editor",
         options,
-        Box::new(|_cc| Ok(Box::new(WhisperApp::default()))),
+        Box::new(|cc| {
+            // 设置多语言字体
+            fonts::setup_fonts(&cc.egui_ctx);
+            Ok(Box::new(WhisperApp::default()))
+        }),
     )
 }
 
