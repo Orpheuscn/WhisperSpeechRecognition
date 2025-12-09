@@ -3,7 +3,7 @@ use std::process::{Command, Stdio};
 use std::fs;
 use std::io::{BufRead, BufReader};
 use anyhow::{Result, anyhow};
-use crate::{WhisperModel, ProgressMessage};
+use crate::app_state::{WhisperModel, ProgressMessage};
 use std::sync::mpsc::Sender;
 
 /// 使用 Whisper 识别音频（保留用于兼容性）

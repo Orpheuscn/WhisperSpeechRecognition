@@ -1,7 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 use anyhow::Result;
-use crate::{WhisperModel, WhisperLanguage, ProgressMessage, srt_merger, whisper};
+use crate::app_state::{WhisperModel, WhisperLanguage, ProgressMessage};
+use crate::{srt_merger, whisper};
 
 /// 识别单个音频片段
 pub fn recognize_single_segment(
